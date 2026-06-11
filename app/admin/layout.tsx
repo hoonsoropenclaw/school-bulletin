@@ -7,7 +7,10 @@ export const dynamic = 'force-dynamic';
 
 export default async function AdminLayout({ children }: { children: React.ReactNode }) {
   const me = await getCurrentUserFull();
-  if (!me) redirect('/login');
+  if (!me) {
+    // 帶 reason 讓 login 頁顯示「session 過期」提示
+    redirect('/login?reason=session_expired');
+  }
 
   return (
     <div className="mx-auto max-w-6xl px-4 py-6">

@@ -5,12 +5,28 @@ import Link from 'next/link';
 
 export const dynamic = 'force-dynamic';
 
-export default async function LoginPage() {
+export default async function LoginPage({
+  searchParams,
+}: {
+  searchParams: Promise<{ reason?: string; redirect?: string }>;
+}) {
   const me = await getCurrentUser();
   if (me) redirect('/');
 
+  const sp = await searchParams;
+  const showExpired = sp.reason === 'session_expired';
+
   return (
     <div className="mx-auto max-w-md px-4 py-16">
+      {showExpired && (
+        <div className="mb-4 rounded-md border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-800">
+          <p className="font-medium">⚠️ 登入已過期</p>
+          <p className="mt-1 text-xs">
+            您的登入階段已失效(可能超過 8 小時未操作、或是換了瀏覽器)。
+            請重新登入後繼續使用。
+          </p>
+        </div>
+      )}
       <div className="card overflow-hidden">
         <div className="border-b border-ink-200 bg-gradient-to-br from-ink-800 to-ink-900 px-6 py-8 text-white">
           <div className="mb-2 flex h-10 w-10 items-center justify-center rounded-md bg-white/10 text-base font-bold backdrop-blur">

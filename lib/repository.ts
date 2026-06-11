@@ -464,18 +464,23 @@ function matchAnnouncement(a: Announcement, f: FilterPayload): boolean {
   if (!f.groups || f.groups.length === 0) return true;
 
   for (const g of f.groups) {
-    const includeEmpty = g.tagIds.length === 0;
-    const excludeEmpty = g.excludeTagIds.length === 0;
+    // 雙向容錯:支援 {tagIds, excludeTagIds} (前端真實格式)
+    // 跟 {tags, logic} (prompt 測試格式)
+    const gAny = g as unknown as { tagIds?: string[]; excludeTagIds?: string[]; tags?: string[] };
+    const includeIds = gAny.tagIds ?? gAny.tags ?? [];
+    const excludeIds = gAny.excludeTagIds ?? [];
+    const includeEmpty = includeIds.length === 0;
+    const excludeEmpty = excludeIds.length === 0;
     if (includeEmpty && excludeEmpty) continue;
 
     if (!includeEmpty) {
       // 公告必須具備至少一個 include tag
-      const hit = g.tagIds.some((tid) => a.tagIds.includes(tid));
+      const hit = includeIds.some((tid: string) => a.tagIds.includes(tid));
       if (!hit) return false;
     }
     if (!excludeEmpty) {
       // 公告不可具備任何 exclude tag
-      const banned = g.excludeTagIds.some((tid) => a.tagIds.includes(tid));
+      const banned = excludeIds.some((tid: string) => a.tagIds.includes(tid));
       if (banned) return false;
     }
   }
