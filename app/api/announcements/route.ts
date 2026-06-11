@@ -8,6 +8,7 @@ import {
   getAttachments,
   getTag,
   listTags,
+  getUserRoleTagIds,
 } from '@/lib/repository';
 import { getCurrentUserFull, newId } from '@/lib/auth';
 import type { Announcement, FilterPayload } from '@/lib/types';
@@ -35,7 +36,19 @@ export async function GET(req: NextRequest) {
   const filter = parseFilter(sp);
   const limit = Math.min(parseInt(sp.get('limit') || '50', 10) || 50, 200);
 
-  const items = await listAnnouncements(filter);
+  // 路線 A 補 1 (M-05) + 補 2 (M-06):從 session 撈 audience,套到 listAnnouncements
+  const me = await getCurrentUserFull();
+  let audience;
+  if (me) {
+    const roleTagIds = await getUserRoleTagIds(me.id);
+    audience = {
+      viewerDept: me.departmentCode,
+      viewerIsSysadmin: me.role === 'sysadmin',
+      viewerIsDeptOfficer: me.role === 'dept_officer',
+      viewerRoleTagIds: roleTagIds,
+    };
+  }
+  const items = await listAnnouncements(filter, audience);
   const limited = items.slice(0, limit);
 
   // 展開標籤 + 附件 (給前端用,一次拿)

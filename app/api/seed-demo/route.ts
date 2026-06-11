@@ -5,6 +5,7 @@
 
 import { NextResponse } from 'next/server';
 import {
+  assignUserRoleTag,
   createAnnouncement,
   createTag,
   createUser,
@@ -27,6 +28,20 @@ const DEPT_ACCOUNTS: Array<{ code: DepartmentCode; role: 'dept_officer' | 'sysad
   { code: 'counsel', role: 'dept_officer', name: '輔導處' },
   { code: 'it', role: 'dept_officer', name: '資訊組' },
   { code: 'principal', role: 'sysadmin', name: '校長室' },
+];
+
+// 路線 A 補 2 (M-06):3 個非處室 demo 帳號
+// departmentCode 借用既有部門 + role 標籤分群 → 用 username 區分
+// teacher_lin 歸 teaching 處室(便於 dept_officer 處室隔離測試時 dept_officer 看得到 teacher_lin 發的公告)、parent_chen 歸 student、student_wang 歸 student
+const NON_DEPT_ACCOUNTS: Array<{
+  username: string;
+  displayName: string;
+  departmentCode: DepartmentCode;
+  roleTagName: string;
+}> = [
+  { username: 'teacher_lin', displayName: '林老師', departmentCode: 'teaching', roleTagName: '教師' },
+  { username: 'parent_chen', displayName: '陳媽媽', departmentCode: 'student', roleTagName: '家長' },
+  { username: 'student_wang', displayName: '王同學', departmentCode: 'student', roleTagName: '學生' },
 ];
 
 const TAGS: Array<{ type: TagType; name: string; color: string }> = [
@@ -57,9 +72,9 @@ const TAGS: Array<{ type: TagType; name: string; color: string }> = [
 ];
 
 export async function GET() {
-  const report = { users: 0, tags: 0, announcements: 0, skipped: false };
+  const report = { users: 0, nonDeptUsers: 0, roleAssignments: 0, tags: 0, announcements: 0, skipped: false };
 
-  // 1. 帳號 (idempotent)
+  // 1. 處室帳號 (idempotent)
   const existingUsers = await listUsers();
   if (existingUsers.length === 0) {
     const passwordHash = await hashPassword(DEFAULT_PASSWORD);
@@ -82,6 +97,26 @@ export async function GET() {
     report.skipped = true;
   }
 
+  // 1b. 路線 A:非處室 demo 帳號 (M-06 受眾分流)
+  for (const a of NON_DEPT_ACCOUNTS) {
+    const existing = await getUserByUsername(a.username);
+    if (existing) continue;
+    const passwordHash = await hashPassword(DEFAULT_PASSWORD);
+    const u: User = {
+      id: newId('u'),
+      username: a.username,
+      displayName: a.displayName,
+      departmentCode: a.departmentCode,
+      role: 'dept_officer', // 沿用既有 role enum(沒有 teacher/parent/student 的 enum 值,先用 dept_officer)
+      passwordHash,
+      mustChangePassword: true,
+      isActive: true,
+      createdAt: new Date().toISOString(),
+    };
+    await createUser(u);
+    report.nonDeptUsers++;
+  }
+
   // 2. 標籤 (idempotent: 用 name 查重)
   const existingTags = await listTags();
   const existingTagNames = new Set(existingTags.map((t) => t.name));
@@ -99,11 +134,25 @@ export async function GET() {
     report.tags++;
   }
 
+  // 2b. 路線 A:user_role_assignments 對應
+  const tagList = await listTags();
+  const roleTagByName = new Map(
+    tagList.filter((t) => t.type === 'role').map((t) => [t.name, t.id]),
+  );
+  for (const a of NON_DEPT_ACCOUNTS) {
+    const u = await getUserByUsername(a.username);
+    if (!u) continue;
+    const roleTagId = roleTagByName.get(a.roleTagName);
+    if (!roleTagId) continue;
+    await assignUserRoleTag(u.id, roleTagId);
+    report.roleAssignments++;
+  }
+
   // 3. 示範公告 (idempotent: 沒公告時才建)
   const existingAnnouncements = await listAnnouncements({ groups: [], search: undefined });
   if (existingAnnouncements.length === 0) {
-    const tagList = await listTags();
-    const tagByName = new Map(tagList.map((t) => [t.name, t]));
+    const fullTagList = await listTags();
+    const tagByName = new Map(fullTagList.map((t) => [t.name, t]));
 
     const pickTags = (...names: string[]) =>
       names.map((n) => tagByName.get(n)?.id).filter((id): id is string => Boolean(id));
@@ -121,6 +170,7 @@ export async function GET() {
         publisherId: teachingUser?.id ?? 'u_teaching',
         publisherName: teachingUser?.displayName ?? '教務處',
         publisherDept: 'teaching',
+        // 路線 A:加 role 標籤 → 受眾分流 (學生+教師 可看,處室承辦可看自己處室)
         tagIds: pickTags('模擬考', '高一', '高二', '學生', '教師'),
         attachmentIds: [],
         requireSignature: true,
@@ -131,6 +181,7 @@ export async function GET() {
         publisherId: studentUser?.id ?? 'u_student',
         publisherName: studentUser?.displayName ?? '學務處',
         publisherDept: 'student',
+        // 受眾:學生+家長(不是教師)
         tagIds: pickTags('營隊', '高一', '高二', '高三', '學生', '家長'),
         attachmentIds: [],
         requireSignature: false,
@@ -141,6 +192,7 @@ export async function GET() {
         publisherId: generalUser?.id ?? 'u_general',
         publisherName: generalUser?.displayName ?? '總務處',
         publisherDept: 'general',
+        // 受眾:教師+家長+學生(全校人員)
         tagIds: pickTags('課表異動', '教師', '家長', '學生'),
         attachmentIds: [],
         requireSignature: false,
@@ -175,10 +227,19 @@ export async function GET() {
       ? '已有帳號資料,跳過 user 建置;tag/announcement 已 idempotent 補齊'
       : '完整 seed 完成',
     report,
-    accounts: DEPT_ACCOUNTS.map((a) => ({
-      username: a.code,
-      password: DEFAULT_PASSWORD,
-      dept: a.name,
-    })),
+    accounts: [
+      ...DEPT_ACCOUNTS.map((a) => ({
+        username: a.code,
+        password: DEFAULT_PASSWORD,
+        dept: a.name,
+        type: '處室',
+      })),
+      ...NON_DEPT_ACCOUNTS.map((a) => ({
+        username: a.username,
+        password: DEFAULT_PASSWORD,
+        dept: a.displayName,
+        type: '受眾',
+      })),
+    ],
   });
 }

@@ -11,6 +11,10 @@ import type {
   PublicUser,
   FilterPayload,
   DepartmentCode,
+  ReadReceipt,
+  SignatureReceipt,
+  UserRoleAssignment,
+  AudienceFilter,
 } from './types';
 import { DEPARTMENT_INFO } from './types';
 
@@ -124,6 +128,57 @@ function attFromRow(r: AttachmentRow): Attachment {
   };
 }
 
+// 路線 A 新表 row 對應
+type ReadReceiptRow = {
+  id: string;
+  announcement_id: string;
+  user_id: string;
+  read_at: string;
+};
+
+type SignatureReceiptRow = {
+  id: string;
+  announcement_id: string;
+  user_id: string;
+  signed_at: string;
+  ip_address: string | null;
+  user_agent: string | null;
+};
+
+type UserRoleAssignmentRow = {
+  user_id: string;
+  role_tag_id: string;
+  created_at: string;
+};
+
+function readReceiptFromRow(r: ReadReceiptRow): ReadReceipt {
+  return {
+    id: r.id,
+    announcementId: r.announcement_id,
+    userId: r.user_id,
+    readAt: r.read_at,
+  };
+}
+
+function signatureReceiptFromRow(r: SignatureReceiptRow): SignatureReceipt {
+  return {
+    id: r.id,
+    announcementId: r.announcement_id,
+    userId: r.user_id,
+    signedAt: r.signed_at,
+    ipAddress: r.ip_address ?? undefined,
+    userAgent: r.user_agent ?? undefined,
+  };
+}
+
+function userRoleAssignmentFromRow(r: UserRoleAssignmentRow): UserRoleAssignment {
+  return {
+    userId: r.user_id,
+    roleTagId: r.role_tag_id,
+    createdAt: r.created_at,
+  };
+}
+
 // ============== 用戶 ==============
 
 export async function createUser(u: User): Promise<void> {
@@ -194,13 +249,14 @@ export async function deleteUser(id: string): Promise<void> {
   if (error) throw new Error(`deleteUser: ${error.message}`);
 }
 
-export function toPublicUser(u: User): PublicUser {
+export function toPublicUser(u: User, roleTagIds: string[] = []): PublicUser {
   return {
     id: u.id,
     username: u.username,
     displayName: u.displayName,
     departmentCode: u.departmentCode,
     role: u.role,
+    roleTagIds,
   };
 }
 
@@ -323,7 +379,10 @@ export async function softDeleteAnnouncement(id: string): Promise<void> {
   if (error) throw new Error(`softDeleteAnnouncement: ${error.message}`);
 }
 
-export async function listAnnouncements(filter: FilterPayload): Promise<Announcement[]> {
+export async function listAnnouncements(
+  filter: FilterPayload,
+  audience?: AudienceFilter,
+): Promise<Announcement[]> {
   const supabase = getSupabaseAdmin();
   let query = supabase
     .from('announcements')
@@ -336,10 +395,62 @@ export async function listAnnouncements(filter: FilterPayload): Promise<Announce
 
   const all = (data as AnnouncementRow[]).map(annFromRow);
 
+  // 受眾過濾(M-05 處室隔離 + M-06 受眾分流)
+  let audienced: Announcement[];
+  if (audience) {
+    const roleSet = await getRoleTagIdsSet();
+    audienced = all.filter((a) => matchAudience(a, audience, roleSet));
+  } else {
+    audienced = all;
+  }
+
   // 篩選 — 群組之間 AND、每個 group 內 include OR、exclude NOT
   // 用 Postgres @> 操作符可推到 DB 但我們用記憶體 filter(MVP < 10k 筆可承受)
-  const filtered = all.filter((a) => matchAnnouncement(a, filter));
+  const filtered = audienced.filter((a) => matchAnnouncement(a, filter));
   return filtered;
+}
+
+// 受眾匹配規則(M-05 + M-06 整合):
+// 1. sysadmin → 看全部
+// 2. dept_officer → 看 [自己處室發布] + [沒 audience role tag 限制的公告](等於公開)
+// 3. teacher/parent/student/guest → 看 [自己 audience 命中] 或 [沒 role 標籤的公告]
+function matchAudience(
+  a: Announcement,
+  aud: AudienceFilter,
+  roleTagIdSet: Set<string>,
+): boolean {
+  if (aud.viewerIsSysadmin) return true;
+  const audienceRoleTagIds = a.tagIds.filter((tid) => roleTagIdSet.has(tid));
+
+  if (aud.viewerIsDeptOfficer) {
+    // 公開公告(無 role 標籤)→ 任何處室承辦可看
+    if (audienceRoleTagIds.length === 0) return true;
+    // 自己處室發布 → 可看
+    if (a.publisherDept === aud.viewerDept) return true;
+    // 其他處室的「特定 role 公告」對 dept_officer 隱藏
+    return false;
+  }
+
+  // 非處室
+  if (audienceRoleTagIds.length === 0) return true;
+  const viewerTags = aud.viewerRoleTagIds ?? [];
+  return audienceRoleTagIds.some((tid) => viewerTags.includes(tid));
+}
+
+// 取得 type='role' 的 tag id 集合(用 listTags() cache,30 秒 TTL 避免每次都打 DB)
+let _roleTagIdCache: Set<string> | null = null;
+let _roleTagIdCacheAt = 0;
+const ROLE_CACHE_TTL_MS = 30_000;
+
+export async function getRoleTagIdsSet(): Promise<Set<string>> {
+  const now = Date.now();
+  if (_roleTagIdCache && now - _roleTagIdCacheAt < ROLE_CACHE_TTL_MS) {
+    return _roleTagIdCache;
+  }
+  const all = await listTags();
+  _roleTagIdCache = new Set(all.filter((t) => t.type === 'role' && t.isActive).map((t) => t.id));
+  _roleTagIdCacheAt = now;
+  return _roleTagIdCache;
 }
 
 function matchAnnouncement(a: Announcement, f: FilterPayload): boolean {
@@ -424,6 +535,174 @@ export async function deleteAttachment(id: string): Promise<void> {
   const supabase = getSupabaseAdmin();
   const { error } = await supabase.from('attachments').delete().eq('id', id);
   if (error) throw new Error(`deleteAttachment: ${error.message}`);
+}
+
+// ============== 路線 A 新表 (M-05/M-06/M-07) ==============
+
+// ============== user_role_assignments (M-06 受眾分流) ==============
+
+export async function getUserRoleTagIds(userId: string): Promise<string[]> {
+  const supabase = getSupabaseAdmin();
+  const { data, error } = await supabase
+    .from('user_role_assignments')
+    .select('role_tag_id')
+    .eq('user_id', userId);
+  if (error) throw new Error(`getUserRoleTagIds: ${error.message}`);
+  return (data ?? []).map((r: { role_tag_id: string }) => r.role_tag_id);
+}
+
+export async function getUsersRoleTagIdsMap(userIds: string[]): Promise<Map<string, string[]>> {
+  const map = new Map<string, string[]>();
+  if (userIds.length === 0) return map;
+  const supabase = getSupabaseAdmin();
+  const { data, error } = await supabase
+    .from('user_role_assignments')
+    .select('user_id, role_tag_id')
+    .in('user_id', userIds);
+  if (error) throw new Error(`getUsersRoleTagIdsMap: ${error.message}`);
+  for (const r of data ?? []) {
+    const uid = (r as { user_id: string }).user_id;
+    const tid = (r as { role_tag_id: string }).role_tag_id;
+    if (!map.has(uid)) map.set(uid, []);
+    map.get(uid)!.push(tid);
+  }
+  return map;
+}
+
+export async function assignUserRoleTag(userId: string, roleTagId: string): Promise<void> {
+  const supabase = getSupabaseAdmin();
+  const { error } = await supabase
+    .from('user_role_assignments')
+    .insert({ user_id: userId, role_tag_id: roleTagId });
+  // 23505 = unique_violation(已存在)→ 靜默忽略,idempotent
+  if (error && !error.message.includes('23505') && !error.message.includes('duplicate')) {
+    throw new Error(`assignUserRoleTag: ${error.message}`);
+  }
+}
+
+export async function listUserRoleAssignments(): Promise<UserRoleAssignment[]> {
+  const supabase = getSupabaseAdmin();
+  const { data, error } = await supabase.from('user_role_assignments').select('*');
+  if (error) throw new Error(`listUserRoleAssignments: ${error.message}`);
+  return (data as UserRoleAssignmentRow[]).map(userRoleAssignmentFromRow);
+}
+
+// ============== read_receipts (M-07 已讀追蹤) ==============
+
+export async function createReadReceipt(r: ReadReceipt): Promise<void> {
+  const supabase = getSupabaseAdmin();
+  const { error } = await supabase.from('read_receipts').insert({
+    id: r.id,
+    announcement_id: r.announcementId,
+    user_id: r.userId,
+    read_at: r.readAt,
+  });
+  // unique violation → 已記錄過(去重,靜默忽略)
+  if (error && !error.message.includes('23505') && !error.message.includes('duplicate')) {
+    throw new Error(`createReadReceipt: ${error.message}`);
+  }
+}
+
+export async function getReadReceipt(
+  announcementId: string,
+  userId: string,
+): Promise<ReadReceipt | null> {
+  const supabase = getSupabaseAdmin();
+  const { data, error } = await supabase
+    .from('read_receipts')
+    .select('*')
+    .eq('announcement_id', announcementId)
+    .eq('user_id', userId)
+    .maybeSingle();
+  if (error) throw new Error(`getReadReceipt: ${error.message}`);
+  return data ? readReceiptFromRow(data as ReadReceiptRow) : null;
+}
+
+export async function listReadReceipts(announcementId: string): Promise<ReadReceipt[]> {
+  const supabase = getSupabaseAdmin();
+  const { data, error } = await supabase
+    .from('read_receipts')
+    .select('*')
+    .eq('announcement_id', announcementId)
+    .order('read_at', { ascending: false });
+  if (error) throw new Error(`listReadReceipts: ${error.message}`);
+  return (data as ReadReceiptRow[]).map(readReceiptFromRow);
+}
+
+export async function countReadReceipts(announcementId: string): Promise<number> {
+  const supabase = getSupabaseAdmin();
+  const { count, error } = await supabase
+    .from('read_receipts')
+    .select('*', { count: 'exact', head: true })
+    .eq('announcement_id', announcementId);
+  if (error) throw new Error(`countReadReceipts: ${error.message}`);
+  return count ?? 0;
+}
+
+// ============== signature_receipts (M-07 簽收追蹤) ==============
+
+export async function createSignatureReceipt(s: SignatureReceipt): Promise<void> {
+  const supabase = getSupabaseAdmin();
+  const { error } = await supabase.from('signature_receipts').insert({
+    id: s.id,
+    announcement_id: s.announcementId,
+    user_id: s.userId,
+    signed_at: s.signedAt,
+    ip_address: s.ipAddress ?? null,
+    user_agent: s.userAgent ?? null,
+  });
+  if (error && !error.message.includes('23505') && !error.message.includes('duplicate')) {
+    throw new Error(`createSignatureReceipt: ${error.message}`);
+  }
+}
+
+export async function getSignatureReceipt(
+  announcementId: string,
+  userId: string,
+): Promise<SignatureReceipt | null> {
+  const supabase = getSupabaseAdmin();
+  const { data, error } = await supabase
+    .from('signature_receipts')
+    .select('*')
+    .eq('announcement_id', announcementId)
+    .eq('user_id', userId)
+    .maybeSingle();
+  if (error) throw new Error(`getSignatureReceipt: ${error.message}`);
+  return data ? signatureReceiptFromRow(data as SignatureReceiptRow) : null;
+}
+
+export async function listSignatureReceipts(
+  announcementId: string,
+): Promise<SignatureReceipt[]> {
+  const supabase = getSupabaseAdmin();
+  const { data, error } = await supabase
+    .from('signature_receipts')
+    .select('*')
+    .eq('announcement_id', announcementId)
+    .order('signed_at', { ascending: false });
+  if (error) throw new Error(`listSignatureReceipts: ${error.message}`);
+  return (data as SignatureReceiptRow[]).map(signatureReceiptFromRow);
+}
+
+export async function listMySignatures(userId: string): Promise<SignatureReceipt[]> {
+  const supabase = getSupabaseAdmin();
+  const { data, error } = await supabase
+    .from('signature_receipts')
+    .select('*')
+    .eq('user_id', userId)
+    .order('signed_at', { ascending: false });
+  if (error) throw new Error(`listMySignatures: ${error.message}`);
+  return (data as SignatureReceiptRow[]).map(signatureReceiptFromRow);
+}
+
+export async function countSignatureReceipts(announcementId: string): Promise<number> {
+  const supabase = getSupabaseAdmin();
+  const { count, error } = await supabase
+    .from('signature_receipts')
+    .select('*', { count: 'exact', head: true })
+    .eq('announcement_id', announcementId);
+  if (error) throw new Error(`countSignatureReceipts: ${error.message}`);
+  return count ?? 0;
 }
 
 export { DEPARTMENT_INFO };
