@@ -42,7 +42,16 @@ export function RichTextEditor({ value, onChange, placeholder }: Props) {
     ],
     content: value || '',
     onUpdate: ({ editor }) => {
-      onChange(editor.getHTML());
+      // Tiptap Color 預設輸出 rgb(r, g, b),我們統一存 hex
+      const html = editor.getHTML();
+      const normalized = html.replace(
+        /rgb\(\s*(\d+)\s*,\s*(\d+)\s*,\s*(\d+)\s*\)/g,
+        (_, r, g, b) => {
+          const hex = (n: string) => Number(n).toString(16).padStart(2, '0');
+          return '#' + hex(r) + hex(g) + hex(b);
+        },
+      );
+      onChange(normalized);
     },
     editorProps: {
       attributes: {

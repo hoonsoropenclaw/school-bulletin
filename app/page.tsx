@@ -2,6 +2,18 @@ import Link from 'next/link';
 import { listAnnouncements, listTags, getAttachments } from '@/lib/repository';
 import { DEPARTMENT_INFO } from '@/lib/types';
 import { FilterPanel } from '@/components/FilterPanel';
+import { sanitizeHtml } from '@/lib/sanitize';
+
+// 把 Tiptap 產出的 rgb(r, g, b) 轉成 #rrggbb,確保樣式乾淨
+function normalizeHtmlColors(html: string): string {
+  return html.replace(
+    /rgb\(\s*(\d+)\s*,\s*(\d+)\s*,\s*(\d+)\s*\)/g,
+    (_, r, g, b) => {
+      const hex = (n: string) => Number(n).toString(16).padStart(2, '0');
+      return '#' + hex(r) + hex(g) + hex(b);
+    },
+  );
+}
 
 export const dynamic = 'force-dynamic';
 
@@ -63,74 +75,78 @@ export default async function HomePage({ searchParams }: { searchParams: Promise
             <ul className="space-y-3">
               {items.map((a) => {
                 const tags = a.tagIds.map((id) => tagMap.get(id)).filter(Boolean);
+                const normalized = normalizeHtmlColors(a.content);
+                const previewHtml = sanitizeHtml(normalized);
                 return (
-                  <li key={a.id} className="card p-5 transition-colors hover:border-ink-300">
-                    <div className="flex flex-wrap items-start justify-between gap-3">
-                      <div className="min-w-0 flex-1">
-                        <Link
-                          href={`/announcements/${a.id}`}
-                          className="text-lg font-medium text-ink-900 hover:text-accent-600"
-                        >
-                          {a.title}
-                        </Link>
-                        <div className="mt-2 flex flex-wrap items-center gap-2 text-xs text-ink-500">
-                          <span className="chip bg-ink-100 text-ink-700">
-                            {DEPARTMENT_INFO[a.publisherDept]?.name ?? a.publisherDept}
-                          </span>
-                          <span>·</span>
-                          <span>{a.publisherName}</span>
-                          <span>·</span>
-                          <time dateTime={a.publishAt}>
-                            {new Date(a.publishAt).toLocaleString('zh-TW', {
-                              year: 'numeric',
-                              month: '2-digit',
-                              day: '2-digit',
-                              hour: '2-digit',
-                              minute: '2-digit',
-                            })}
-                          </time>
-                          {a.attachmentIds.length > 0 && (
-                            <>
-                              <span>·</span>
-                              <span className="text-accent-600">
-                                附件 {a.attachmentIds.length} 個
-                              </span>
-                            </>
-                          )}
-                          {a.requireSignature && (
-                            <>
-                              <span>·</span>
-                              <span className="chip bg-accent-100 text-accent-700">需簽收</span>
-                            </>
-                          )}
-                        </div>
-                        {tags.length > 0 && (
-                          <div className="mt-2 flex flex-wrap gap-1">
-                            {tags.slice(0, 6).map((t) =>
-                              t ? (
-                                <span
-                                  key={t.id}
-                                  className="chip"
-                                  style={{
-                                    backgroundColor: (t.color || '#94a3b8') + '20',
-                                    color: t.color || '#475569',
-                                  }}
-                                >
-                                  {t.name}
+                  <li key={a.id}>
+                    <Link
+                      href={`/announcements/${a.id}`}
+                      className="block card p-5 transition-colors hover:border-accent-500 hover:shadow-sm focus:outline-none focus:ring-2 focus:ring-accent-500"
+                    >
+                      <div className="flex flex-wrap items-start justify-between gap-3">
+                        <div className="min-w-0 flex-1">
+                          <h2 className="text-lg font-medium text-ink-900 group-hover:text-accent-600">
+                            {a.title}
+                          </h2>
+                          <div className="mt-2 flex flex-wrap items-center gap-2 text-xs text-ink-500">
+                            <span className="chip bg-ink-100 text-ink-700">
+                              {DEPARTMENT_INFO[a.publisherDept]?.name ?? a.publisherDept}
+                            </span>
+                            <span>·</span>
+                            <span>{a.publisherName}</span>
+                            <span>·</span>
+                            <time dateTime={a.publishAt}>
+                              {new Date(a.publishAt).toLocaleString('zh-TW', {
+                                year: 'numeric',
+                                month: '2-digit',
+                                day: '2-digit',
+                                hour: '2-digit',
+                                minute: '2-digit',
+                              })}
+                            </time>
+                            {a.attachmentIds.length > 0 && (
+                              <>
+                                <span>·</span>
+                                <span className="text-accent-600">
+                                  附件 {a.attachmentIds.length} 個
                                 </span>
-                              ) : null,
+                              </>
                             )}
-                            {tags.length > 6 && (
-                              <span className="text-xs text-ink-400">+{tags.length - 6}</span>
+                            {a.requireSignature && (
+                              <>
+                                <span>·</span>
+                                <span className="chip bg-accent-100 text-accent-700">需簽收</span>
+                              </>
                             )}
                           </div>
-                        )}
+                          {tags.length > 0 && (
+                            <div className="mt-2 flex flex-wrap gap-1">
+                              {tags.slice(0, 6).map((t) =>
+                                t ? (
+                                  <span
+                                    key={t.id}
+                                    className="chip"
+                                    style={{
+                                      backgroundColor: (t.color || '#94a3b8') + '20',
+                                      color: t.color || '#475569',
+                                    }}
+                                  >
+                                    {t.name}
+                                  </span>
+                                ) : null,
+                              )}
+                              {tags.length > 6 && (
+                                <span className="text-xs text-ink-400">+{tags.length - 6}</span>
+                              )}
+                            </div>
+                          )}
+                        </div>
                       </div>
-                    </div>
-                    <p className="mt-3 line-clamp-2 text-sm text-ink-600">
-                      {a.content.slice(0, 160)}
-                      {a.content.length > 160 && '...'}
-                    </p>
+                      <div
+                        className="mt-3 line-clamp-2 text-sm text-ink-600 prose prose-sm max-w-none"
+                        dangerouslySetInnerHTML={{ __html: previewHtml }}
+                      />
+                    </Link>
                   </li>
                 );
               })}

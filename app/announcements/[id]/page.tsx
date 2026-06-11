@@ -4,6 +4,16 @@ import { getAnnouncement, getAttachments, listTags } from '@/lib/repository';
 import { DEPARTMENT_INFO } from '@/lib/types';
 import { sanitizeHtml } from '@/lib/sanitize';
 
+function normalizeHtmlColors(html: string): string {
+  return html.replace(
+    /rgb\(\s*(\d+)\s*,\s*(\d+)\s*,\s*(\d+)\s*\)/g,
+    (_, r, g, b) => {
+      const hex = (n: string) => Number(n).toString(16).padStart(2, '0');
+      return '#' + hex(r) + hex(g) + hex(b);
+    },
+  );
+}
+
 export const dynamic = 'force-dynamic';
 
 export default async function AnnouncementPage({
@@ -70,7 +80,7 @@ export default async function AnnouncementPage({
 
         <div
           className="prose prose-sm max-w-none text-ink-800 leading-relaxed"
-          dangerouslySetInnerHTML={{ __html: sanitizeHtml(a.content) }}
+          dangerouslySetInnerHTML={{ __html: sanitizeHtml(normalizeHtmlColors(a.content)) }}
         />
 
         {attachments.length > 0 && (
