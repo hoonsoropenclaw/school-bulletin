@@ -413,38 +413,39 @@ export async function listAnnouncements(
   return filtered;
 }
 
-// 受眾匹配規則(M-05 + M-06 整合,2026-06-11 v2 修訂):
-// - 訪客(未登入)→ 只看「公開公告」(無 role 標籤)
+// 受眾匹配規則(M-05 + M-06 + 訪客預設公開整合,2026-06-11 v3 修訂):
+// - 訪客(未登入)→ 看全部(公告預設對外,在還沒建立「內部公告」機制前應該這樣設定)
 // - sysadmin → 看全部
 // - dept_officer(處室承辦)→ 看全部(處室互通是工作所需,不該被 audience 阻擋)
-// - teacher/parent/student/guest → 看「自己 audience 命中」或「無 role 標籤的公開公告」
+// - teacher/parent/student(已登入受眾)→ 看「自己 audience 命中」或「公開」(無 role 標籤)
 //
-// 設計原則:
-// - 處室承辦 = 系統管理員級 = 應該看到所有公告(才知道各處室在發什麼、家長會看到什麼)
-// - 受眾(老師/家長/學生) = 只能看 audience 命中或公開的
-// - 訪客 = 完全沒登入 = 只能看公開
+// 設計原則(2026-06-11 v3 反轉):
+// - 訪客 = 沒登入 = 公告預設對外 = 看全部(未登入者更需要「什麼都看得到」才能信任這是公開的學校網站)
+// - 受眾(老師/家長/學生) = 已登入 = 看到 audience 命中 + 公開(登入後的體驗更聚焦)
+// - 處室承辦 = 系統管理員級 = 應該看到所有公告
 function matchAudience(
   a: Announcement,
   aud: AudienceFilter,
   roleTagIdSet: Set<string>,
 ): boolean {
-  if (aud.viewerIsSysadmin) return true;
-
-  const audienceRoleTagIds = a.tagIds.filter((tid) => roleTagIdSet.has(tid));
-
-  // 訪客(未登入):viewerIsDeptOfficer + viewerRoleTagIds 都空
-  // 嚴格只給「完全公開」(無 role 標籤)
-  if (!aud.viewerIsDeptOfficer && (aud.viewerRoleTagIds ?? []).length === 0) {
-    return audienceRoleTagIds.length === 0;
-  }
-
-  // 處室承辦(已登入):看全部
-  if (aud.viewerIsDeptOfficer) {
+  // 訪客(未登入,viewerIsDeptOfficer + viewerRoleTagIds + viewerIsSysadmin 都空)→ 看全部
+  // 這是 v3 的反轉決定: 公告預設對外
+  if (
+    !aud.viewerIsSysadmin &&
+    !aud.viewerIsDeptOfficer &&
+    (aud.viewerRoleTagIds ?? []).length === 0
+  ) {
     return true;
   }
 
-  // 受眾(老師/家長/學生):有對應 role tag 就看
-  if (audienceRoleTagIds.length === 0) return true;
+  // 處室承辦(已登入) / 系統管理員 → 看全部
+  if (aud.viewerIsSysadmin || aud.viewerIsDeptOfficer) {
+    return true;
+  }
+
+  // 受眾(老師/家長/學生):audience 命中 或 公開(無 role 標籤)
+  const audienceRoleTagIds = a.tagIds.filter((tid) => roleTagIdSet.has(tid));
+  if (audienceRoleTagIds.length === 0) return true; // 公開公告
   const viewerTags = aud.viewerRoleTagIds ?? [];
   return audienceRoleTagIds.some((tid) => viewerTags.includes(tid));
 }
