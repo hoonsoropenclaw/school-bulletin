@@ -1,13 +1,13 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { put } from '@vercel/blob';
 import { createAttachment, listAttachments } from '@/lib/repository';
 import { getCurrentUserFull, newId } from '@/lib/auth';
-import { HAS_BLOB } from '@/lib/storage';
+import { getSupabaseAdmin, HAS_SUPABASE } from '@/lib/db';
 import type { Attachment } from '@/lib/types';
 
 export const runtime = 'nodejs';
 
 const MAX_BYTES = 50 * 1024 * 1024; // 50MB
+const BUCKET = 'attachments';
 
 export async function POST(req: NextRequest) {
   const me = await getCurrentUserFull();
@@ -17,9 +17,9 @@ export async function POST(req: NextRequest) {
       { status: 401 },
     );
   }
-  if (!HAS_BLOB) {
+  if (!HAS_SUPABASE) {
     return NextResponse.json(
-      { error: { code: 'BLOB_NOT_CONFIGURED', message: '附件儲存未配置 (需 BLOB_READ_WRITE_TOKEN)' } },
+      { error: { code: 'STORAGE_NOT_CONFIGURED', message: '附件儲存未配置' } },
       { status: 503 },
     );
   }
@@ -37,16 +37,31 @@ export async function POST(req: NextRequest) {
       { status: 413 },
     );
   }
-  const blob = await put(file.name, file, {
-    access: 'public',
-    addRandomSuffix: true,
-  });
+  // Supabase Storage 上傳
+  const supabase = getSupabaseAdmin();
+  const fileId = newId('att');
+  const safeName = file.name.replace(/[^a-zA-Z0-9._-]/g, '_');
+  const path = `${me.id}/${fileId}-${safeName}`;
+  const buf = Buffer.from(await file.arrayBuffer());
+
+  const { error: upErr } = await supabase.storage
+    .from(BUCKET)
+    .upload(path, buf, {
+      contentType: file.type || 'application/octet-stream',
+      upsert: false,
+    });
+  if (upErr) {
+    return NextResponse.json(
+      { error: { code: 'UPLOAD_FAILED', message: upErr.message } },
+      { status: 500 },
+    );
+  }
   const a: Attachment = {
-    id: newId('att'),
+    id: fileId,
     fileName: file.name,
     mimeType: file.type || 'application/octet-stream',
     sizeBytes: file.size,
-    blobUrl: blob.url,
+    storagePath: path,
     uploadedBy: me.id,
     createdAt: new Date().toISOString(),
   };
@@ -55,7 +70,6 @@ export async function POST(req: NextRequest) {
 }
 
 export async function GET() {
-  // MVP 簡化:列出所有附件(可後續加 ?uploadedBy=me 等 filter)
   const atts = await listAttachments();
   return NextResponse.json({ data: atts });
 }

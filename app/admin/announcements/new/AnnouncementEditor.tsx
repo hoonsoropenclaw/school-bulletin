@@ -3,7 +3,7 @@
 import { useState, useTransition } from 'react';
 import { useRouter } from 'next/navigation';
 import type { Tag, TagType, Attachment } from '@/lib/types';
-import { HAS_BLOB } from '@/lib/storage';
+import { HAS_SUPABASE } from '@/lib/db';
 
 interface Props {
   tags: Tag[];
@@ -210,7 +210,7 @@ export function AnnouncementEditor({ tags }: Props) {
       <div>
         <label className="label">附件</label>
         <div className="rounded-md border-2 border-dashed border-ink-300 p-4 text-center">
-          {HAS_BLOB ? (
+          {HAS_SUPABASE ? (
             <label className="cursor-pointer">
               <input type="file" className="hidden" onChange={onUpload} disabled={uploading} />
               <span className="text-sm text-ink-600">

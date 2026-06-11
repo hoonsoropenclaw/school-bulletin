@@ -1,77 +1,44 @@
-// Vercel KV 適配器 - 模擬簡單的 collection 操作
-// 鍵設計:
-//   user:<id> = User JSON
-//   user:by-username:<username> = userId
-//   tag:<id> = Tag JSON
-//   announcement:<id> = Announcement JSON
-//   attachment:<id> = Attachment JSON
-//   set:users = [userId, ...]
-//   set:tags = [tagId, ...]
-//   set:announcements = [announcementId, ...]
-//   set:attachments = [attachmentId, ...]
+// Supabase client — 用 service_role 走後端 (繞過 RLS、跑 admin 動作)
+// 不用 KV/Blob,完全 Supabase 統一
+//
+// 重要: 這是 SERVER-ONLY module。絕對不能 import 到 client component。
+// 因為 SUPABASE_SERVICE_ROLE_KEY 必須保密,只能 server-side 用。
 
-// Lazy import: 只在真的有 KV env 時才載入 SDK,避免在沒 env 的環境 import 噴錯
-type KvLike = {
-  get<T = unknown>(key: string): Promise<T | null>;
-  set(key: string, value: unknown): Promise<unknown>;
-  del(...keys: string[]): Promise<unknown>;
-  sadd(key: string, ...members: string[]): Promise<unknown>;
-  srem(key: string, ...members: string[]): Promise<unknown>;
-  smembers(key: string): Promise<string[]>;
-};
+import { createClient, type SupabaseClient } from '@supabase/supabase-js';
 
-let kvPromise: Promise<KvLike | null> | null = null;
+let _client: SupabaseClient | null = null;
 
-export const HAS_KV = !!(process.env.KV_REST_API_URL && process.env.KV_REST_API_TOKEN);
-
-async function getKv(): Promise<KvLike | null> {
-  if (!HAS_KV) return null;
-  if (!kvPromise) {
-    kvPromise = import('@vercel/kv')
-      .then((m) => m.kv as unknown as KvLike)
-      .catch(() => null);
+function getEnv(name: string): string | undefined {
+  // 同時看 process.env (server runtime) 跟 .env.local
+  if (typeof process !== 'undefined' && process.env && process.env[name]) {
+    return process.env[name];
   }
-  return kvPromise;
+  return undefined;
 }
 
-export async function kvGet<T>(key: string): Promise<T | null> {
-  const kv = await getKv();
-  if (!kv) return null;
-  return (await kv.get<T>(key)) ?? null;
+export function getSupabaseAdmin(): SupabaseClient {
+  if (_client) return _client;
+
+  const url = getEnv('SUPABASE_URL') || getEnv('NEXT_PUBLIC_SUPABASE_URL');
+  const key = getEnv('SUPABASE_SERVICE_ROLE_KEY');
+
+  if (!url || !key) {
+    throw new Error(
+      'Supabase env 缺失。需要 SUPABASE_URL + SUPABASE_SERVICE_ROLE_KEY。' +
+      '到 Vercel Dashboard → Project → Settings → Environment Variables 設定。',
+    );
+  }
+
+  _client = createClient(url, key, {
+    auth: {
+      autoRefreshToken: false,
+      persistSession: false,
+    },
+  });
+  return _client;
 }
 
-export async function kvSet<T>(key: string, value: T): Promise<void> {
-  const kv = await getKv();
-  if (!kv) return;
-  await kv.set(key, value);
-}
-
-export async function kvDel(key: string): Promise<void> {
-  const kv = await getKv();
-  if (!kv) return;
-  await kv.del(key);
-}
-
-export async function kvSAdd(setKey: string, member: string): Promise<void> {
-  const kv = await getKv();
-  if (!kv) return;
-  await kv.sadd(setKey, member);
-}
-
-export async function kvSRem(setKey: string, member: string): Promise<void> {
-  const kv = await getKv();
-  if (!kv) return;
-  await kv.srem(setKey, member);
-}
-
-export async function kvSMembers(setKey: string): Promise<string[]> {
-  const kv = await getKv();
-  if (!kv) return [];
-  return (await kv.smembers(setKey)) as string[];
-}
-
-export async function kvDelMany(keys: string[]): Promise<void> {
-  const kv = await getKv();
-  if (!kv || keys.length === 0) return;
-  await kv.del(...keys);
-}
+export const HAS_SUPABASE = !!(
+  (getEnv('SUPABASE_URL') || getEnv('NEXT_PUBLIC_SUPABASE_URL')) &&
+  getEnv('SUPABASE_SERVICE_ROLE_KEY')
+);

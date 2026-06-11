@@ -39,10 +39,11 @@ export interface User {
 
 export interface Attachment {
   id: string;
+  announcementId?: string;
   fileName: string;
   mimeType: string;
   sizeBytes: number;
-  blobUrl: string;        // Vercel Blob URL
+  storagePath: string;    // Supabase Storage path: <userId>/<fileId>-<name>
   uploadedBy: string;     // user id
   createdAt: string;
 }
