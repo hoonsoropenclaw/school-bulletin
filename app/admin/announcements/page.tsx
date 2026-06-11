@@ -3,6 +3,7 @@ import { redirect } from 'next/navigation';
 import { getCurrentUserFull } from '@/lib/auth';
 import { listAnnouncements } from '@/lib/repository';
 import { DEPARTMENT_INFO } from '@/lib/types';
+import { AnnouncementActions } from './AnnouncementActions';
 
 export const dynamic = 'force-dynamic';
 
@@ -49,12 +50,10 @@ export default async function MyAnnouncementsPage() {
                     {a.requireSignature && ' · 需簽收'}
                   </div>
                 </div>
-                <Link
-                  href={`/announcements/${a.id}`}
-                  className="btn-outline text-xs"
-                >
-                  查看
-                </Link>
+                <AnnouncementActions
+                  announcementId={a.id}
+                  title={a.title}
+                />
               </div>
             </li>
           ))}

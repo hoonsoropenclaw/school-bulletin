@@ -8,6 +8,15 @@ import { RichTextEditor } from '@/components/RichTextEditor';
 
 interface Props {
   tags: Tag[];
+  initial?: {
+    id: string;
+    title: string;
+    content: string;
+    tagIds: string[];
+    requireSignature: boolean;
+    signatureDeadline?: string;
+    attachmentIds: string[];
+  };
 }
 
 const TYPE_LABELS: Record<TagType, string> = {
@@ -30,15 +39,17 @@ const COLOR_PRESETS = [
   '#475569', // 灰
 ];
 
-export function AnnouncementEditor({ tags: initialTags }: Props) {
+export function AnnouncementEditor({ tags: initialTags, initial }: Props) {
   const router = useRouter();
   const [isPending, startTransition] = useTransition();
-  const [title, setTitle] = useState('');
-  const [content, setContent] = useState('');
+  const [title, setTitle] = useState(initial?.title ?? '');
+  const [content, setContent] = useState(initial?.content ?? '');
   const [tags, setTags] = useState<Tag[]>(initialTags);
-  const [selectedTagIds, setSelectedTagIds] = useState<string[]>([]);
-  const [requireSignature, setRequireSignature] = useState(false);
-  const [signatureDeadline, setSignatureDeadline] = useState('');
+  const [selectedTagIds, setSelectedTagIds] = useState<string[]>(initial?.tagIds ?? []);
+  const [requireSignature, setRequireSignature] = useState(initial?.requireSignature ?? false);
+  const [signatureDeadline, setSignatureDeadline] = useState(
+    initial?.signatureDeadline ? initial.signatureDeadline.slice(0, 16) : '',
+  );
   const [attachments, setAttachments] = useState<Attachment[]>([]);
   const [uploading, setUploading] = useState(false);
   const [uploadError, setUploadError] = useState<string | null>(null);
@@ -133,8 +144,12 @@ export function AnnouncementEditor({ tags: initialTags }: Props) {
     }
     startTransition(async () => {
       try {
-        const res = await fetch('/api/announcements', {
-          method: 'POST',
+        const url = initial
+          ? `/api/announcements/${initial.id}`
+          : '/api/announcements';
+        const method = initial ? 'PATCH' : 'POST';
+        const res = await fetch(url, {
+          method,
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({
             title,

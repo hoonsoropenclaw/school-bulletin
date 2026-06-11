@@ -31,6 +31,12 @@ export default async function AdminLayout({ children }: { children: React.ReactN
               >
                 發布新公告
               </Link>
+              <Link
+                href="/admin/settings"
+                className="block rounded px-2 py-1.5 text-sm text-ink-700 hover:bg-ink-50"
+              >
+                帳號設定
+              </Link>
             </nav>
           </div>
         </aside>
