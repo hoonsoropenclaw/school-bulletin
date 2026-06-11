@@ -413,41 +413,30 @@ export async function listAnnouncements(
   return filtered;
 }
 
-// 受眾匹配規則(M-05 + M-06 + 訪客預設公開整合,2026-06-11 v3 修訂):
-// - 訪客(未登入)→ 看全部(公告預設對外,在還沒建立「內部公告」機制前應該這樣設定)
-// - sysadmin → 看全部
-// - dept_officer(處室承辦)→ 看全部(處室互通是工作所需,不該被 audience 阻擋)
-// - teacher/parent/student(已登入受眾)→ 看「自己 audience 命中」或「公開」(無 role 標籤)
+// 受眾匹配規則(M-05 + M-06 + 內部公告機制暫停,2026-06-11 v4 修訂):
+// - 未登入(訪客)→ 看全部「外部公告」(當前所有公告都是外部)
+// - 已登入(任何角色:sysadmin / dept_officer / teacher / parent / student)→ 看全部
 //
-// 設計原則(2026-06-11 v3 反轉):
-// - 訪客 = 沒登入 = 公告預設對外 = 看全部(未登入者更需要「什麼都看得到」才能信任這是公開的學校網站)
-// - 受眾(老師/家長/學生) = 已登入 = 看到 audience 命中 + 公開(登入後的體驗更聚焦)
-// - 處室承辦 = 系統管理員級 = 應該看到所有公告
+// 設計原則(2026-06-11 v4):
+// - 登入帳號的目的 = 看到「內部公告」,所以「內部公告」機制完成前 = 不該有 audience 過濾
+// - 在「內部公告」機制完成之前,所有公告都是「外部公告」,所有人都該看得到
+// - 處室 / 系統管理員(可發布) / 受眾(teacher/parent/student) = 登入後 = 看全部
+// - 受眾(teacher/parent/student)的 audience 過濾邏輯 = 暫停,等內部公告機制上線再啟用
+//
+// 未來「內部公告」機制啟用時:
+// 1. 新增 audience_type 欄位: 'public' (預設) | 'internal' | 'role_specific'
+// 2. 訪客(未登入)→ 只看 public
+// 3. 已登入 → 看 public + audience 命中的 internal
+// 4. 此時 matchAudience 邏輯才需要分 dept_officer / teacher/parent/student
 function matchAudience(
   a: Announcement,
   aud: AudienceFilter,
   roleTagIdSet: Set<string>,
 ): boolean {
-  // 訪客(未登入,viewerIsDeptOfficer + viewerRoleTagIds + viewerIsSysadmin 都空)→ 看全部
-  // 這是 v3 的反轉決定: 公告預設對外
-  if (
-    !aud.viewerIsSysadmin &&
-    !aud.viewerIsDeptOfficer &&
-    (aud.viewerRoleTagIds ?? []).length === 0
-  ) {
-    return true;
-  }
-
-  // 處室承辦(已登入) / 系統管理員 → 看全部
-  if (aud.viewerIsSysadmin || aud.viewerIsDeptOfficer) {
-    return true;
-  }
-
-  // 受眾(老師/家長/學生):audience 命中 或 公開(無 role 標籤)
-  const audienceRoleTagIds = a.tagIds.filter((tid) => roleTagIdSet.has(tid));
-  if (audienceRoleTagIds.length === 0) return true; // 公開公告
-  const viewerTags = aud.viewerRoleTagIds ?? [];
-  return audienceRoleTagIds.some((tid) => viewerTags.includes(tid));
+  // 內部公告機制未完成前,任何視角(包含受眾)都看全部
+  // 已登入的受眾也看全部 = 登入的目的就是看更多,看不到更多 = 登入沒意義
+  void roleTagIdSet; // 保留參數,未來內部公告機制啟用時會用
+  return true;
 }
 
 // 取得 type='role' 的 tag id 集合(用 listTags() cache,30 秒 TTL 避免每次都打 DB)
