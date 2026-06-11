@@ -198,6 +198,41 @@ print(json.loads(urllib.request.urlopen(req2).read())['id'])
 
 ---
 
-## 9. 一句話總結
+## 10. C 方案決策紀錄 (2026-06-11)
 
-**89% 完成度、production 部署完成、9 個 demo 帳號 E2E 全通、3 個新表 schema 補進 Supabase、M-04 AND 篩選 + 簽收 UI + session 過期提示 3 個 production bug 修好並部署、5 個 SESSION DB 教訓寫進 SOP**。
+**使用者決策**：登入後應該看到全部公告；「已發布的公告」才是看自己處室的；受眾帳號不可發布。
+
+**C 方案邏輯**（取代原 PRD 4.3.4 處室隔離）：
+
+| 角色 | 首頁 (anns) | 發布/編刪 | TopBar 顯示 |
+|------|-------------|-----------|------------|
+| 訪客 (未登入) | 公開公告 (無 role tag) | 不可 | 「處室登入」按鈕 |
+| dept_officer (6 個處室) | 全部公告 | ✅ | 處室名·姓名 |
+| sysadmin (principal) | 全部公告 | ✅ | 處室名·姓名 |
+| teacher/parent/student/guest | audience 命中 | ❌ 403 | 處室名·姓名 (role) |
+
+**Production 驗證**（HEAD = `a4fb22b`）：
+
+| 帳號 | role | 看到 | POST | PATCH | DELETE |
+|------|------|------|------|-------|--------|
+| 訪客 | - | 1 | 401 | 401 | 401 |
+| principal | sysadmin | 4 | 201 | - | - |
+| teaching | dept_officer | 4 | 201 | - | - |
+| general | dept_officer | 4 | 201 | - | - |
+| counsel | dept_officer | 4 | - | - | - |
+| it | dept_officer | 4 | - | - | - |
+| teacher_lin | teacher | 3 | 403 | 403 | 403 |
+| parent_chen | parent | 3 | 403 | 403 | 403 |
+| student_wang | student | 4 | 403 | 403 | 403 |
+
+**改動檔案**（6 個）:
+- `lib/types.ts`: User['role'] 擴充 4 個值
+- `lib/repository.ts`: matchAudience 改 C 邏輯
+- `app/api/seed-demo/route.ts`: 受眾帳號用 a.role
+- `app/api/announcements/route.ts`: POST 加 403 擋
+- `app/api/announcements/[id]/route.ts`: PATCH/DELETE 加 403 擋
+- `components/TopBar.tsx`: 隱藏發布按鈕 + 顯示 role label
+
+**Supabase DB 改動**:
+- 3 個受眾帳號 role 從 `dept_officer` 改為 `teacher` / `parent` / `student`
+- 測試時建立的垃圾公告已清除
