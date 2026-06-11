@@ -37,6 +37,16 @@ export interface User {
   lastLoginAt?: string;
 }
 
+// 受眾標籤類型(對應 tags.type='role' 的 name 常見值)
+export type RoleTagName = 'student' | 'parent' | 'teacher' | 'guest';
+// 對應中文顯示
+export const ROLE_TAG_NAME_TO_CN: Record<RoleTagName, string> = {
+  student: '學生',
+  parent: '家長',
+  teacher: '教師',
+  guest: '訪客',
+};
+
 export interface Attachment {
   id: string;
   announcementId?: string;
@@ -83,4 +93,46 @@ export interface PublicUser {
   displayName: string;
   departmentCode: DepartmentCode;
   role: User['role'];
+  // 該使用者具備的受眾角色 tag id 陣列(來自 user_role_assignments 對應到 tags.type='role')
+  // 給前端 UI 顯示 + 後端 listAnnouncements 過濾用
+  roleTagIds?: string[];
+}
+
+// ============== 路線 A 補完 (M-05/M-06/M-07) — 3 張新表型別 ==============
+
+// 已讀紀錄 (進入公告詳情頁時自動寫入,去重)
+export interface ReadReceipt {
+  id: string;
+  announcementId: string;
+  userId: string;
+  readAt: string;
+}
+
+// 簽收回條 (使用者點「我已簽收」觸發)
+export interface SignatureReceipt {
+  id: string;
+  announcementId: string;
+  userId: string;
+  signedAt: string;
+  ipAddress?: string;
+  userAgent?: string;
+}
+
+// User → 受眾 role tag 多對多對應
+export interface UserRoleAssignment {
+  userId: string;
+  roleTagId: string;
+  createdAt: string;
+}
+
+// Audience 過濾選項(listAnnouncements 接收)
+export interface AudienceFilter {
+  // 觀看者所屬處室(用於 dept_officer 處室隔離)
+  viewerDept?: DepartmentCode;
+  // 觀看者是否為系統管理員(sysadmin 看全部)
+  viewerIsSysadmin?: boolean;
+  // 觀看者的受眾角色 tag id 陣列(命中任一即符合)
+  viewerRoleTagIds?: string[];
+  // 觀看者是否為處室承辦(dept_officer)
+  viewerIsDeptOfficer?: boolean;
 }

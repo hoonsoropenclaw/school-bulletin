@@ -1,5 +1,6 @@
 import Link from 'next/link';
-import { listAnnouncements, listTags, getAttachments } from '@/lib/repository';
+import { listAnnouncements, listTags, getAttachments, getUserRoleTagIds } from '@/lib/repository';
+import { getCurrentUserFull } from '@/lib/auth';
 import { DEPARTMENT_INFO } from '@/lib/types';
 import { FilterPanel } from '@/components/FilterPanel';
 import { sanitizeHtml } from '@/lib/sanitize';
@@ -40,7 +41,19 @@ export default async function HomePage({ searchParams }: { searchParams: Promise
   const allTags = await listTags();
   const tagMap = new Map(allTags.map((t) => [t.id, t]));
 
-  const items = await listAnnouncements({ groups, search: q });
+  // 路線 A 補 1 (M-05) + 補 2 (M-06):依登入者身份套 audience 過濾
+  const me = await getCurrentUserFull();
+  let audience;
+  if (me) {
+    const roleTagIds = await getUserRoleTagIds(me.id);
+    audience = {
+      viewerDept: me.departmentCode,
+      viewerIsSysadmin: me.role === 'sysadmin',
+      viewerIsDeptOfficer: me.role === 'dept_officer',
+      viewerRoleTagIds: roleTagIds,
+    };
+  }
+  const items = await listAnnouncements({ groups, search: q }, audience);
 
   // 一次把附件拉齊(避免 N+1)
   const allAttachmentIds = items.flatMap((a) => a.attachmentIds);

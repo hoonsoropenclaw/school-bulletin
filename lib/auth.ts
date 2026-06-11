@@ -1,7 +1,7 @@
 import { cookies } from 'next/headers';
 import { createHmac, randomBytes, timingSafeEqual } from 'node:crypto';
 import bcrypt from 'bcryptjs';
-import { getUser, toPublicUser } from './repository';
+import { getUser, getUserRoleTagIds, toPublicUser } from './repository';
 import type { PublicUser, User } from './types';
 
 const COOKIE_NAME = 'sb_session';
@@ -85,7 +85,9 @@ export async function getCurrentUser(): Promise<PublicUser | null> {
   if (!payload) return null;
   const u = await getUser(payload.uid);
   if (!u || !u.isActive) return null;
-  return toPublicUser(u);
+  // 路線 A 補完:把 user_role_assignments 一起撈回來(給前端 UI 跟 audience 過濾用)
+  const roleTagIds = await getUserRoleTagIds(u.id);
+  return toPublicUser(u, roleTagIds);
 }
 
 export async function getCurrentUserFull(): Promise<User | null> {

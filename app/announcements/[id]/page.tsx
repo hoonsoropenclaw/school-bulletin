@@ -1,8 +1,15 @@
 import Link from 'next/link';
 import { notFound } from 'next/navigation';
-import { getAnnouncement, getAttachments, listTags } from '@/lib/repository';
+import {
+  getAnnouncement,
+  getAttachments,
+  listTags,
+  getSignatureReceipt,
+} from '@/lib/repository';
+import { getCurrentUserFull } from '@/lib/auth';
 import { DEPARTMENT_INFO } from '@/lib/types';
 import { sanitizeHtml } from '@/lib/sanitize';
+import { SignatureButton } from './SignatureButton';
 
 function normalizeHtmlColors(html: string): string {
   return html.replace(
@@ -28,6 +35,14 @@ export default async function AnnouncementPage({
   const tagMap = new Map(allTags.map((t) => [t.id, t]));
   const tags = a.tagIds.map((tid) => tagMap.get(tid)).filter(Boolean);
   const attachments = await getAttachments(a.attachmentIds);
+
+  // 路線 A 補 3 (M-07):撈登入者對此公告的簽收狀態
+  const me = await getCurrentUserFull();
+  let existingSignedAt: string | undefined;
+  if (me && a.requireSignature) {
+    const sig = await getSignatureReceipt(id, me.id);
+    existingSignedAt = sig?.signedAt;
+  }
 
   return (
     <div className="mx-auto max-w-3xl px-4 py-6">
@@ -103,6 +118,15 @@ export default async function AnnouncementPage({
               ))}
             </ul>
           </div>
+        )}
+
+        {/* 路線 A 補 3:簽收按鈕(只在 requireSignature=true 時顯示) */}
+        {a.requireSignature && (
+          <SignatureButton
+            announcementId={a.id}
+            existingSignedAt={existingSignedAt}
+            isLoggedIn={!!me}
+          />
         )}
       </article>
     </div>
