@@ -74,6 +74,19 @@ export async function POST(req: NextRequest) {
       { status: 401 },
     );
   }
+  // C 方案 (2026-06-11):只有 dept_officer / sysadmin 可發布
+  // 受眾帳號 (teacher/parent/student/guest) 不可發布公告
+  if (me.role !== 'dept_officer' && me.role !== 'sysadmin') {
+    return NextResponse.json(
+      {
+        error: {
+          code: 'FORBIDDEN',
+          message: '您的角色沒有發布公告的權限。處室承辦才能發布公告。',
+        },
+      },
+      { status: 403 },
+    );
+  }
   let body: Partial<Announcement> & { tagIds?: string[]; attachmentIds?: string[] };
   try {
     body = await req.json();

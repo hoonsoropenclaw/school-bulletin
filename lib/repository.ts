@@ -396,13 +396,16 @@ export async function listAnnouncements(
   const all = (data as AnnouncementRow[]).map(annFromRow);
 
   // 受眾過濾(M-05 處室隔離 + M-06 受眾分流)
-  let audienced: Announcement[];
-  if (audience) {
-    const roleSet = await getRoleTagIdsSet();
-    audienced = all.filter((a) => matchAudience(a, audience, roleSet));
-  } else {
-    audienced = all;
-  }
+  // 2026-06-11 v2:未登入(無 audience)走訪客邏輯、也跑 matchAudience
+  // 不再 bypass — 訪客只能看公開公告
+  const roleSet = await getRoleTagIdsSet();
+  const effectiveAudience: AudienceFilter = audience ?? {
+    viewerDept: '' as DepartmentCode,
+    viewerIsSysadmin: false,
+    viewerIsDeptOfficer: false,
+    viewerRoleTagIds: [],
+  };
+  const audienced = all.filter((a) => matchAudience(a, effectiveAudience, roleSet));
 
   // 篩選 — 群組之間 AND、每個 group 內 include OR、exclude NOT
   // 用 Postgres @> 操作符可推到 DB 但我們用記憶體 filter(MVP < 10k 筆可承受)
@@ -410,28 +413,37 @@ export async function listAnnouncements(
   return filtered;
 }
 
-// 受眾匹配規則(M-05 + M-06 整合):
-// 1. sysadmin → 看全部
-// 2. dept_officer → 看 [自己處室發布] + [沒 audience role tag 限制的公告](等於公開)
-// 3. teacher/parent/student/guest → 看 [自己 audience 命中] 或 [沒 role 標籤的公告]
+// 受眾匹配規則(M-05 + M-06 整合,2026-06-11 v2 修訂):
+// - 訪客(未登入)→ 只看「公開公告」(無 role 標籤)
+// - sysadmin → 看全部
+// - dept_officer(處室承辦)→ 看全部(處室互通是工作所需,不該被 audience 阻擋)
+// - teacher/parent/student/guest → 看「自己 audience 命中」或「無 role 標籤的公開公告」
+//
+// 設計原則:
+// - 處室承辦 = 系統管理員級 = 應該看到所有公告(才知道各處室在發什麼、家長會看到什麼)
+// - 受眾(老師/家長/學生) = 只能看 audience 命中或公開的
+// - 訪客 = 完全沒登入 = 只能看公開
 function matchAudience(
   a: Announcement,
   aud: AudienceFilter,
   roleTagIdSet: Set<string>,
 ): boolean {
   if (aud.viewerIsSysadmin) return true;
+
   const audienceRoleTagIds = a.tagIds.filter((tid) => roleTagIdSet.has(tid));
 
-  if (aud.viewerIsDeptOfficer) {
-    // 公開公告(無 role 標籤)→ 任何處室承辦可看
-    if (audienceRoleTagIds.length === 0) return true;
-    // 自己處室發布 → 可看
-    if (a.publisherDept === aud.viewerDept) return true;
-    // 其他處室的「特定 role 公告」對 dept_officer 隱藏
-    return false;
+  // 訪客(未登入):viewerIsDeptOfficer + viewerRoleTagIds 都空
+  // 嚴格只給「完全公開」(無 role 標籤)
+  if (!aud.viewerIsDeptOfficer && (aud.viewerRoleTagIds ?? []).length === 0) {
+    return audienceRoleTagIds.length === 0;
   }
 
-  // 非處室
+  // 處室承辦(已登入):看全部
+  if (aud.viewerIsDeptOfficer) {
+    return true;
+  }
+
+  // 受眾(老師/家長/學生):有對應 role tag 就看
   if (audienceRoleTagIds.length === 0) return true;
   const viewerTags = aud.viewerRoleTagIds ?? [];
   return audienceRoleTagIds.some((tid) => viewerTags.includes(tid));

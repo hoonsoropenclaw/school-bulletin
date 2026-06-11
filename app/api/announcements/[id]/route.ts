@@ -37,6 +37,18 @@ export async function PATCH(req: NextRequest, { params }: { params: Promise<{ id
       { status: 401 },
     );
   }
+  // C 方案 (2026-06-11):只有 dept_officer / sysadmin 可編輯
+  if (me.role !== 'dept_officer' && me.role !== 'sysadmin') {
+    return NextResponse.json(
+      {
+        error: {
+          code: 'FORBIDDEN',
+          message: '您的角色沒有編輯公告的權限。',
+        },
+      },
+      { status: 403 },
+    );
+  }
   const a = await getAnnouncement(id);
   if (!a || a.deletedAt) {
     return NextResponse.json(
@@ -103,6 +115,18 @@ export async function DELETE(_req: NextRequest, { params }: { params: Promise<{ 
     return NextResponse.json(
       { error: { code: 'UNAUTHENTICATED', message: '請先登入' } },
       { status: 401 },
+    );
+  }
+  // C 方案 (2026-06-11):只有 dept_officer / sysadmin 可刪除
+  if (me.role !== 'dept_officer' && me.role !== 'sysadmin') {
+    return NextResponse.json(
+      {
+        error: {
+          code: 'FORBIDDEN',
+          message: '您的角色沒有刪除公告的權限。',
+        },
+      },
+      { status: 403 },
     );
   }
   const a = await getAnnouncement(id);

@@ -4,6 +4,9 @@ import { DEPARTMENT_INFO } from '@/lib/types';
 
 export async function TopBar() {
   const me = await getCurrentUser();
+  // C 方案 (2026-06-11):只有 dept_officer / sysadmin 可發布公告
+  // 受眾角色 (teacher/parent/student) 看不到「發布公告」按鈕
+  const canPublish = me?.role === 'dept_officer' || me?.role === 'sysadmin';
   return (
     <header className="border-b border-ink-200 bg-white">
       <div className="mx-auto flex max-w-6xl items-center justify-between px-4 py-3">
@@ -22,11 +25,16 @@ export async function TopBar() {
           </Link>
           {me ? (
             <>
-              <Link href="/admin/announcements/new" className="btn-outline text-sm">
-                發布公告
-              </Link>
+              {canPublish && (
+                <Link href="/admin/announcements/new" className="btn-outline text-sm">
+                  發布公告
+                </Link>
+              )}
               <span className="hidden text-sm text-ink-500 sm:inline">
-                {DEPARTMENT_INFO[me.departmentCode].name} · {me.displayName}
+                {DEPARTMENT_INFO[me.departmentCode]?.name ?? me.departmentCode} · {me.displayName}
+                {me.role !== 'dept_officer' && me.role !== 'sysadmin' && (
+                  <span className="ml-1 text-xs text-ink-400">({me.role})</span>
+                )}
               </span>
               <form action="/api/auth/logout" method="post" className="inline">
                 <button type="submit" className="btn-ghost text-sm">

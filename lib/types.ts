@@ -29,7 +29,7 @@ export interface User {
   username: string;       // = 處室 code (e.g. "teaching")
   displayName: string;    // "教務處"
   departmentCode: DepartmentCode;
-  role: 'dept_officer' | 'sysadmin';
+  role: 'dept_officer' | 'sysadmin' | 'teacher' | 'parent' | 'student' | 'guest';
   passwordHash: string;
   mustChangePassword: boolean;
   isActive: boolean;

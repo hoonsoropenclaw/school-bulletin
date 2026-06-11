@@ -31,17 +31,18 @@ const DEPT_ACCOUNTS: Array<{ code: DepartmentCode; role: 'dept_officer' | 'sysad
 ];
 
 // 路線 A 補 2 (M-06):3 個非處室 demo 帳號
-// departmentCode 借用既有部門 + role 標籤分群 → 用 username 區分
-// teacher_lin 歸 teaching 處室(便於 dept_officer 處室隔離測試時 dept_officer 看得到 teacher_lin 發的公告)、parent_chen 歸 student、student_wang 歸 student
+// C 方案 (2026-06-11 修訂):role 標記為 teacher/parent/student(非處室承辦)
+// 這樣 UI 跟 API 可以擋他們的發布權限、保留「受眾只能看不能發」的語意
 const NON_DEPT_ACCOUNTS: Array<{
   username: string;
   displayName: string;
   departmentCode: DepartmentCode;
   roleTagName: string;
+  role: 'teacher' | 'parent' | 'student';
 }> = [
-  { username: 'teacher_lin', displayName: '林老師', departmentCode: 'teaching', roleTagName: '教師' },
-  { username: 'parent_chen', displayName: '陳媽媽', departmentCode: 'student', roleTagName: '家長' },
-  { username: 'student_wang', displayName: '王同學', departmentCode: 'student', roleTagName: '學生' },
+  { username: 'teacher_lin', displayName: '林老師', departmentCode: 'teaching', roleTagName: '教師', role: 'teacher' },
+  { username: 'parent_chen', displayName: '陳媽媽', departmentCode: 'student', roleTagName: '家長', role: 'parent' },
+  { username: 'student_wang', displayName: '王同學', departmentCode: 'student', roleTagName: '學生', role: 'student' },
 ];
 
 const TAGS: Array<{ type: TagType; name: string; color: string }> = [
@@ -98,6 +99,7 @@ export async function GET() {
   }
 
   // 1b. 路線 A:非處室 demo 帳號 (M-06 受眾分流)
+  // C 方案 (2026-06-11):role 用 a.role(teacher/parent/student),不混用 dept_officer
   for (const a of NON_DEPT_ACCOUNTS) {
     const existing = await getUserByUsername(a.username);
     if (existing) continue;
@@ -107,7 +109,7 @@ export async function GET() {
       username: a.username,
       displayName: a.displayName,
       departmentCode: a.departmentCode,
-      role: 'dept_officer', // 沿用既有 role enum(沒有 teacher/parent/student 的 enum 值,先用 dept_officer)
+      role: a.role,
       passwordHash,
       mustChangePassword: true,
       isActive: true,
