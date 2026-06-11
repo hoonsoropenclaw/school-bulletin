@@ -4,6 +4,7 @@ import { useState, useTransition } from 'react';
 import { useRouter } from 'next/navigation';
 import type { Tag, TagType, Attachment } from '@/lib/types';
 import { HAS_SUPABASE } from '@/lib/db';
+import { RichTextEditor } from '@/components/RichTextEditor';
 
 interface Props {
   tags: Tag[];
@@ -15,14 +16,26 @@ const TYPE_LABELS: Record<TagType, string> = {
   department: '處室',
   activity: '活動類型',
   role: '受眾身分',
+  custom: '自訂',
 };
-const TYPE_ORDER: TagType[] = ['grade', 'class', 'department', 'activity', 'role'];
+const TYPE_ORDER: TagType[] = ['grade', 'class', 'department', 'activity', 'role', 'custom'];
+const COLOR_PRESETS = [
+  '#3b82f6', // 藍
+  '#8b5cf6', // 紫
+  '#0ea5e9', // 青
+  '#10b981', // 綠
+  '#e87919', // 橘 (accent)
+  '#dc2626', // 紅
+  '#ec4899', // 粉
+  '#475569', // 灰
+];
 
-export function AnnouncementEditor({ tags }: Props) {
+export function AnnouncementEditor({ tags: initialTags }: Props) {
   const router = useRouter();
   const [isPending, startTransition] = useTransition();
   const [title, setTitle] = useState('');
   const [content, setContent] = useState('');
+  const [tags, setTags] = useState<Tag[]>(initialTags);
   const [selectedTagIds, setSelectedTagIds] = useState<string[]>([]);
   const [requireSignature, setRequireSignature] = useState(false);
   const [signatureDeadline, setSignatureDeadline] = useState('');
@@ -30,6 +43,14 @@ export function AnnouncementEditor({ tags }: Props) {
   const [uploading, setUploading] = useState(false);
   const [uploadError, setUploadError] = useState<string | null>(null);
   const [submitError, setSubmitError] = useState<string | null>(null);
+
+  // 自建標籤
+  const [showNewTag, setShowNewTag] = useState(false);
+  const [newTagName, setNewTagName] = useState('');
+  const [newTagType, setNewTagType] = useState<TagType>('custom');
+  const [newTagColor, setNewTagColor] = useState('#3b82f6');
+  const [creatingTag, setCreatingTag] = useState(false);
+  const [createTagError, setCreateTagError] = useState<string | null>(null);
 
   function toggleTag(id: string) {
     setSelectedTagIds((prev) => {
@@ -40,6 +61,36 @@ export function AnnouncementEditor({ tags }: Props) {
       }
       return [...prev, id];
     });
+  }
+
+  async function createNewTag() {
+    if (!newTagName.trim()) {
+      setCreateTagError('標籤名稱不可為空');
+      return;
+    }
+    setCreatingTag(true);
+    setCreateTagError(null);
+    try {
+      const res = await fetch('/api/tags', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ name: newTagName.trim(), type: newTagType, color: newTagColor }),
+      });
+      const data = await res.json();
+      if (!res.ok) {
+        setCreateTagError(data?.error?.message || '建立失敗');
+        return;
+      }
+      const newTag = data.data as Tag;
+      setTags((prev) => [...prev, newTag]);
+      setSelectedTagIds((prev) => (prev.length >= 10 ? prev : [...prev, newTag.id]));
+      setNewTagName('');
+      setShowNewTag(false);
+    } catch {
+      setCreateTagError('網路錯誤');
+    } finally {
+      setCreatingTag(false);
+    }
   }
 
   async function onUpload(e: React.ChangeEvent<HTMLInputElement>) {
@@ -57,11 +108,11 @@ export function AnnouncementEditor({ tags }: Props) {
         return;
       }
       setAttachments((prev) => [...prev, data.data as Attachment]);
-    } catch (e) {
+    } catch {
       setUploadError('網路錯誤');
     } finally {
       setUploading(false);
-      e.target.value = ''; // 允許重複上傳同檔
+      e.target.value = '';
     }
   }
 
@@ -101,7 +152,7 @@ export function AnnouncementEditor({ tags }: Props) {
         }
         router.push(`/announcements/${data.data.id}`);
         router.refresh();
-      } catch (e) {
+      } catch {
         setSubmitError('網路錯誤');
       }
     });
@@ -109,6 +160,7 @@ export function AnnouncementEditor({ tags }: Props) {
 
   const byType = new Map<TagType, Tag[]>();
   for (const t of tags) {
+    if (!t.isActive) continue;
     if (!byType.has(t.type)) byType.set(t.type, []);
     byType.get(t.type)!.push(t);
   }
@@ -135,25 +187,81 @@ export function AnnouncementEditor({ tags }: Props) {
         <label className="label" htmlFor="content">
           內文 <span className="text-red-500">*</span>
         </label>
-        <textarea
-          id="content"
-          className="input min-h-[200px] resize-y"
-          required
+        <RichTextEditor
           value={content}
-          onChange={(e) => setContent(e.target.value)}
-          placeholder="公告詳細內容..."
+          onChange={setContent}
+          placeholder="公告詳細內容,可調整字體大小、顏色,加入超連結..."
         />
+        <p className="mt-1 text-xs text-ink-400">支援粗體、斜體、底線、字體大小、顏色、超連結</p>
       </div>
 
       <div>
-        <label className="label">標籤 (至少 1 個,最多 10 個)</label>
+        <div className="mb-1 flex items-center justify-between">
+          <label className="label mb-0">標籤 (至少 1 個,最多 10 個)</label>
+          <button
+            type="button"
+            onClick={() => setShowNewTag((s) => !s)}
+            className="text-xs text-accent-600 hover:underline"
+          >
+            {showNewTag ? '取消' : '+ 新增標籤'}
+          </button>
+        </div>
+
+        {showNewTag && (
+          <div className="mb-3 rounded-md border border-accent-200 bg-accent-50 p-3">
+            <div className="grid grid-cols-1 gap-2 sm:grid-cols-[1fr_120px_auto]">
+              <input
+                className="input"
+                placeholder="新標籤名稱 (1-20 字)"
+                value={newTagName}
+                onChange={(e) => setNewTagName(e.target.value)}
+                maxLength={20}
+              />
+              <select
+                className="input"
+                value={newTagType}
+                onChange={(e) => setNewTagType(e.target.value as TagType)}
+              >
+                {TYPE_ORDER.map((t) => (
+                  <option key={t} value={t}>{TYPE_LABELS[t]}</option>
+                ))}
+              </select>
+              <button
+                type="button"
+                onClick={createNewTag}
+                disabled={creatingTag}
+                className="btn-primary text-xs"
+              >
+                {creatingTag ? '建立中...' : '建立並選取'}
+              </button>
+            </div>
+            <div className="mt-2 flex items-center gap-1">
+              <span className="text-xs text-ink-500">顏色:</span>
+              {COLOR_PRESETS.map((c) => (
+                <button
+                  key={c}
+                  type="button"
+                  onClick={() => setNewTagColor(c)}
+                  className={
+                    'h-5 w-5 rounded-sm border ' +
+                    (newTagColor === c ? 'border-ink-900 ring-1 ring-ink-900' : 'border-ink-200')
+                  }
+                  style={{ backgroundColor: c }}
+                />
+              ))}
+            </div>
+            {createTagError && <p className="mt-1 text-xs text-red-600">{createTagError}</p>}
+          </div>
+        )}
+
         <div className="space-y-2">
           {TYPE_ORDER.map((t) => {
             const list = byType.get(t) || [];
-            if (list.length === 0) return null;
             return (
               <div key={t}>
-                <div className="mb-1 text-xs font-medium text-ink-500">{TYPE_LABELS[t]}</div>
+                <div className="mb-1 text-xs font-medium text-ink-500">
+                  {TYPE_LABELS[t]} {list.length === 0 && <span className="text-ink-400">(無,可從上方新增)</span>}
+                </div>
                 <div className="flex flex-wrap gap-1">
                   {list.map((tag) => {
                     const selected = selectedTagIds.includes(tag.id);
@@ -167,6 +275,11 @@ export function AnnouncementEditor({ tags }: Props) {
                           (selected
                             ? 'border-accent-500 bg-accent-100 text-accent-700'
                             : 'border-ink-200 bg-white text-ink-600 hover:border-ink-300')
+                        }
+                        style={
+                          selected
+                            ? undefined
+                            : { borderColor: (tag.color || '#94a3b8') + '40' }
                         }
                       >
                         {tag.name}
@@ -218,9 +331,7 @@ export function AnnouncementEditor({ tags }: Props) {
               </span>
             </label>
           ) : (
-            <p className="text-sm text-ink-500">
-              附件功能需在 Vercel 上設定 BLOB_READ_WRITE_TOKEN 才會啟用
-            </p>
+            <p className="text-sm text-ink-500">附件功能未啟用</p>
           )}
         </div>
         {uploadError && <p className="mt-1 text-xs text-red-600">{uploadError}</p>}

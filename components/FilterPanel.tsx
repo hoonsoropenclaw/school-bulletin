@@ -16,11 +16,18 @@ const TYPE_LABELS: Record<TagType, string> = {
   department: '處室',
   activity: '活動類型',
   role: '受眾身分',
+  custom: '自訂',
 };
 
-const TYPE_ORDER: TagType[] = ['grade', 'class', 'department', 'activity', 'role'];
+const TYPE_ORDER: TagType[] = ['grade', 'class', 'department', 'activity', 'role', 'custom'];
 
 function encodeGroups(groups: FilterGroup[]): string {
+  // 瀏覽器端用 btoa + base64url-safe,不能直接用 Buffer (瀏覽器沒 Buffer)
+  if (typeof window !== 'undefined' && typeof btoa === 'function') {
+    const b64 = btoa(unescape(encodeURIComponent(JSON.stringify({ groups }))));
+    return b64.replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/, '');
+  }
+  // Node (server) fallback
   return Buffer.from(JSON.stringify({ groups })).toString('base64url');
 }
 

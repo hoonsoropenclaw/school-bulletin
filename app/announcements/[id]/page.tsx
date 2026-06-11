@@ -2,6 +2,7 @@ import Link from 'next/link';
 import { notFound } from 'next/navigation';
 import { getAnnouncement, getAttachments, listTags } from '@/lib/repository';
 import { DEPARTMENT_INFO } from '@/lib/types';
+import { sanitizeHtml } from '@/lib/sanitize';
 
 export const dynamic = 'force-dynamic';
 
@@ -67,7 +68,10 @@ export default async function AnnouncementPage({
           )}
         </header>
 
-        <div className="whitespace-pre-wrap text-ink-800 leading-relaxed">{a.content}</div>
+        <div
+          className="prose prose-sm max-w-none text-ink-800 leading-relaxed"
+          dangerouslySetInnerHTML={{ __html: sanitizeHtml(a.content) }}
+        />
 
         {attachments.length > 0 && (
           <div className="mt-6 border-t border-ink-200 pt-4">

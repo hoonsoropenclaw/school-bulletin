@@ -12,7 +12,7 @@ export const DEPARTMENT_INFO: Record<DepartmentCode, { name: string; short: stri
   principal: { name: '校長室', short: '校' },
 };
 
-export type TagType = 'grade' | 'class' | 'department' | 'activity' | 'role';
+export type TagType = 'grade' | 'class' | 'department' | 'activity' | 'role' | 'custom';
 
 export interface Tag {
   id: string;
